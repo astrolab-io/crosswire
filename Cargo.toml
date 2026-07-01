@@ -1,0 +1,79 @@
+[package]
+name = "crosswire"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+description = "A generic PPP-over-TLS VPN client with pluggable providers (FortiGate first)"
+authors = ["the CrossWire authors"]
+repository = "https://github.com/astrolab-io/crosswire"
+homepage = "https://github.com/astrolab-io/crosswire"
+readme = "README.md"
+keywords = ["vpn", "fortigate", "sslvpn", "ppp", "networkmanager"]
+categories = ["command-line-utilities", "network-programming"]
+
+[features]
+# Load client certificates/keys from a PKCS#11 token via the OpenSSL engine.
+# Requires the system 'pkcs11' OpenSSL engine (e.g. libengine-pkcs11-openssl).
+pkcs11 = ["dep:openssl-sys", "dep:foreign-types"]
+
+[dependencies]
+anyhow = "1.0.101"
+async-trait = "0.1"
+axum = "0.8.8"
+bytes = "1.11.1"
+openssl-sys = { version = "0.9", optional = true }
+foreign-types = { version = "0.3", optional = true }
+clap = { version = "4.5.60", features = ["derive"] }
+cookie = "0.18.1"
+futures = "0.3.32"
+http-body-util = "0.1.3"
+hyper = { version = "1.8.1", features = ["client", "http1"] }
+hyper-util = { version = "0.1.20", features = ["tokio"] }
+libc = "0.2.180"
+nix = { version = "0.31.1", features = ["ioctl", "fs", "term", "signal", "poll", "user"] }
+openssl = "0.10.75"
+roxmltree = "0.21.1"
+serde = { version = "1.0.228", features = ["derive"] }
+thiserror = "2.0.18"
+tokio = { version = "1.49.0", features = ["full"] }
+tokio-openssl = "0.6.5"
+tokio-util = { version = "0.7.18", features = ["codec"] }
+tracing = { version = "0.1.44", features = ["max_level_debug"] }
+tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
+urlencoding = "2.1.3"
+
+[dev-dependencies]
+tempfile = "3.0"
+
+[profile.release]
+codegen-units = 1
+lto = "fat"
+
+# ---------------------------------------------------------------------------
+# Packaging metadata (consumed by `cargo deb` and `cargo generate-rpm`).
+# ---------------------------------------------------------------------------
+[package.metadata.deb]
+maintainer = "Luan Mattner Müller <luanmm@gmail.com>"
+copyright = "2026, the crosswire authors"
+license-file = ["LICENSE", "0"]
+extended-description = "A generic PPP-over-TLS VPN client with pluggable providers (FortiGate first)."
+section = "net"
+priority = "optional"
+depends = "$auto, ppp, iproute2"
+recommends = "openssl"
+assets = [
+    ["target/release/crosswire", "usr/sbin/", "755"],
+    ["README.md", "usr/share/doc/crosswire/README.md", "644"],
+]
+
+[package.metadata.generate-rpm]
+summary = "A generic PPP-over-TLS VPN client (FortiGate provider)"
+assets = [
+    { source = "target/release/crosswire", dest = "/usr/sbin/crosswire", mode = "755" },
+    { source = "README.md", dest = "/usr/share/doc/crosswire/README.md", mode = "644", doc = true },
+    { source = "LICENSE", dest = "/usr/share/licenses/crosswire/LICENSE", mode = "644", doc = true },
+]
+
+[package.metadata.generate-rpm.requires]
+ppp = "*"
+iproute = "*"
