@@ -4,4 +4,5 @@ pub mod engine;
 pub mod framer;
 pub mod io;
 pub mod lifecycle;
+pub mod progress;
 pub mod provider;

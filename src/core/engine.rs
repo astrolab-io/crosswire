@@ -10,6 +10,7 @@
 use crate::cli::Config;
 use crate::core::io::io_loop;
 use crate::core::lifecycle::Shutdown;
+use crate::core::progress::{Progress, Status};
 use crate::core::provider::{ProviderContext, Session, VpnProvider};
 use crate::net::NetworkConfigurator;
 use crate::net::wait_for_iface;
@@ -29,15 +30,21 @@ pub async fn run(
     config: Arc<Config>,
     mut shutdown: Shutdown,
 ) -> Result<()> {
-    let ctx = ProviderContext::new(config.clone(), TlsFactory::from_config(&config));
+    let progress = Progress::new();
+    let ctx = ProviderContext::new(config.clone(), TlsFactory::from_config(&config), progress.clone());
 
     if config.persistent == 0 {
-        return run_once(&*provider, &ctx, &*net, &config, shutdown).await;
+        let result = run_once(&*provider, &ctx, &*net, &config, shutdown).await;
+        if let Err(e) = &result {
+            report_failure(&progress, e).await;
+        }
+        return result;
     }
 
     while !shutdown.is_triggered() {
         if let Err(e) = run_once(&*provider, &ctx, &*net, &config, shutdown.clone()).await {
             tracing::error!("Tunnel terminated: {:#}", e);
+            report_failure(&progress, &e).await;
         }
         if shutdown.is_triggered() {
             break;
@@ -63,6 +70,7 @@ async fn run_once(
     tracing::info!("Connecting via {} provider", provider.name());
     let session = provider.authenticate(ctx).await?;
     tracing::info!("Authenticated.");
+    ctx.progress().report(Status::Authenticated);
 
     let result = run_session(provider, ctx, net, config, &session, shutdown).await;
 
@@ -84,9 +92,11 @@ async fn run_session(
     session: &Session,
     shutdown: Shutdown,
 ) -> Result<()> {
+    ctx.progress().report(Status::FetchingConfig);
     let params = provider.fetch_params(ctx, session).await?;
     tracing::info!("Received tunnel parameters: {:?}", params);
 
+    ctx.progress().report(Status::StartingTunnel);
     // pppd guard reaps on drop (end of this scope, any exit path).
     let (_pppd, master_fd) = spawn_pppd(config, &config.pppd_ifname, &params)?;
     tracing::info!("Spawned pppd on {}", config.pppd_ifname);
@@ -103,6 +113,7 @@ async fn run_session(
     ));
 
     // Bring up the interface, then apply network config (restored on drop).
+    ctx.progress().report(Status::ConfiguringNetwork);
     let setup = async {
         wait_for_iface(&config.pppd_ifname, IFACE_TIMEOUT).await?;
         net.apply(&params, &config.pppd_ifname, config)
@@ -113,6 +124,7 @@ async fn run_session(
         Ok(applied) => {
             let _applied = applied; // restores routes/DNS/addr on drop
             tracing::info!("VPN is up.");
+            ctx.progress().report(Status::Up);
             let _ = io_handle.await;
             Ok(())
         }
@@ -123,4 +135,14 @@ async fn run_session(
         }
     }
     // _pppd dropped here → SIGTERM + reap.
+}
+
+/// Publish a terminal failure to the progress bus. If a SAML status page is open
+/// in the browser, linger briefly so it can render the error badge (and run its
+/// own close timer) before the process exits and tears the local server down.
+async fn report_failure(progress: &Progress, err: &anyhow::Error) {
+    progress.report(Status::Failed(format!("{err:#}")));
+    if progress.browser_open() {
+        tokio::time::sleep(Duration::from_secs(4)).await;
+    }
 }

@@ -7,6 +7,7 @@
 
 use crate::cli::Config;
 use crate::core::framer::Framer;
+use crate::core::progress::Progress;
 use crate::transport::tls::TlsFactory;
 use anyhow::Result;
 use async_trait::async_trait;
@@ -44,15 +45,21 @@ pub struct TunnelParams {
     pub mtu: Option<u32>,
 }
 
-/// Shared context handed to a provider: config plus a verified TLS factory.
+/// Shared context handed to a provider: config, a verified TLS factory, and a
+/// progress handle for surfacing connection state (e.g. to the SAML status page).
 pub struct ProviderContext {
     pub config: Arc<Config>,
     tls: TlsFactory,
+    progress: Progress,
 }
 
 impl ProviderContext {
-    pub fn new(config: Arc<Config>, tls: TlsFactory) -> Self {
-        Self { config, tls }
+    pub fn new(config: Arc<Config>, tls: TlsFactory, progress: Progress) -> Self {
+        Self {
+            config,
+            tls,
+            progress,
+        }
     }
 
     /// Open a fresh verified TLS connection to the gateway.
@@ -62,6 +69,11 @@ impl ProviderContext {
 
     pub fn tls(&self) -> &TlsFactory {
         &self.tls
+    }
+
+    /// Handle for reporting connection progress (and for the SAML status page).
+    pub fn progress(&self) -> &Progress {
+        &self.progress
     }
 }
 
