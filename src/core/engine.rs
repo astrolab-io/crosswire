@@ -31,7 +31,11 @@ pub async fn run(
     mut shutdown: Shutdown,
 ) -> Result<()> {
     let progress = Progress::new();
-    let ctx = ProviderContext::new(config.clone(), TlsFactory::from_config(&config), progress.clone());
+    let ctx = ProviderContext::new(
+        config.clone(),
+        TlsFactory::from_config(&config),
+        progress.clone(),
+    );
 
     if config.persistent == 0 {
         let result = run_once(&*provider, &ctx, &*net, &config, shutdown).await;

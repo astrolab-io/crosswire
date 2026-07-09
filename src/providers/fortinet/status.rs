@@ -239,7 +239,9 @@ mod tests {
             id_tx: Arc::new(Mutex::new(None)),
             progress: progress.clone(),
         };
-        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .unwrap();
         let addr = listener.local_addr().unwrap();
         tokio::spawn(async move {
             let _ = axum::serve(listener, router(state)).await;
@@ -254,12 +256,18 @@ mod tests {
 
         // The current phase is delivered right away…
         let head = read_until(&mut sock, "Fetching VPN configuration").await;
-        assert!(head.contains("event:loading") || head.contains("event: loading"), "{head}");
+        assert!(
+            head.contains("event:loading") || head.contains("event: loading"),
+            "{head}"
+        );
 
         // …and a later phase arrives on the same stream.
         progress.report(Status::Up);
         let more = read_until(&mut sock, "You're all set").await;
-        assert!(more.contains("event:success") || more.contains("event: success"), "{more}");
+        assert!(
+            more.contains("event:success") || more.contains("event: success"),
+            "{more}"
+        );
     }
 
     /// Read from the socket until `needle` appears (or a short timeout), so the

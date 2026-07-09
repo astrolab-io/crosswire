@@ -110,7 +110,12 @@ impl HttpSession {
     /// Construct a fresh request (headers + current cookies + body). Rebuilt for
     /// every send attempt, since `send_request` consumes the request and a retry
     /// runs it on a new connection.
-    fn build_request(&self, method: &Method, full_uri: &str, body: &str) -> Result<Request<Full<Bytes>>> {
+    fn build_request(
+        &self,
+        method: &Method,
+        full_uri: &str,
+        body: &str,
+    ) -> Result<Request<Full<Bytes>>> {
         let mut builder = Request::builder()
             .method(method.clone())
             .uri(full_uri)
@@ -157,8 +162,9 @@ impl HttpSession {
                         .context("re-dialing gateway after a dropped connection")?;
                 }
                 Err(e) => {
-                    return Err(anyhow::Error::new(e)
-                        .context(format!("request to {full_uri} failed")));
+                    return Err(
+                        anyhow::Error::new(e).context(format!("request to {full_uri} failed"))
+                    );
                 }
             }
         }
@@ -251,6 +257,9 @@ mod tests {
         // Sum of all backoffs must stay well under NM's 60s connect timeout,
         // or an in-flight reconnect would outlive the connection attempt.
         let total: Duration = (1..=MAX_RECONNECTS).map(backoff).sum();
-        assert!(total < Duration::from_secs(30), "retry budget {total:?} too large");
+        assert!(
+            total < Duration::from_secs(30),
+            "retry budget {total:?} too large"
+        );
     }
 }
