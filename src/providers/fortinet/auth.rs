@@ -2,18 +2,10 @@
 //! Fortinet authentication flows: username/password and SAML/SSO.
 
 use super::http::HttpSession;
+use super::status;
 use crate::cli::Config;
-use crate::net::browser;
+use crate::core::progress::{Progress, Status};
 use anyhow::{Result, bail};
-use axum::{
-    Router,
-    extract::{Query, State},
-    response::Html,
-    routing::get,
-};
-use serde::Deserialize;
-use std::sync::Arc;
-use tokio::sync::{Mutex, oneshot};
 
 pub const SVPNCOOKIE: &str = "SVPNCOOKIE";
 
@@ -135,17 +127,21 @@ async fn handle_challenge(http: &mut HttpSession, config: &Config, challenge: &s
     Ok(())
 }
 
-#[derive(Deserialize)]
-struct SamlQuery {
-    id: String,
-}
-
-/// Run the SAML login flow: start a local callback server, open the browser at
-/// the gateway's SAML entry point, capture the session id, and exchange it for
-/// an SVPNCOOKIE via `/remote/saml/auth_id`.
-pub async fn saml_login(http: &mut HttpSession, config: &Config, port: u16) -> Result<()> {
-    let session_id = capture_saml_id(config, port).await?;
+/// Run the SAML login flow: start a local callback + status server, open the
+/// browser at the gateway's SAML entry point, capture the session id, and
+/// exchange it for an SVPNCOOKIE via `/remote/saml/auth_id`. The status server
+/// stays up (driven by `progress`) so the browser reflects the connection coming
+/// up rather than closing the instant sign-in completes.
+pub async fn saml_login(
+    http: &mut HttpSession,
+    config: &Config,
+    port: u16,
+    progress: Progress,
+) -> Result<()> {
+    let session_id =
+        status::capture_saml_id(&config.host, config.port, port, progress.clone()).await?;
     tracing::info!("Received SAML session id.");
+    progress.report(Status::Authenticating);
 
     let uri = format!(
         "/remote/saml/auth_id?id={}",
@@ -163,56 +159,6 @@ pub async fn saml_login(http: &mut HttpSession, config: &Config, port: u16) -> R
         );
     }
     Ok(())
-}
-
-async fn capture_saml_id(config: &Config, port: u16) -> Result<String> {
-    let (tx, rx) = oneshot::channel();
-    let state = Arc::new(Mutex::new(Some(tx)));
-
-    let app = Router::new()
-        .route("/", get(saml_callback))
-        .with_state(state);
-    let listener = tokio::net::TcpListener::bind(("127.0.0.1", port)).await?;
-    tracing::info!("Listening for SAML callback on 127.0.0.1:{}", port);
-
-    let (shutdown_tx, shutdown_rx) = oneshot::channel();
-    let server = axum::serve(listener, app).with_graceful_shutdown(async move {
-        let _ = shutdown_rx.await;
-    });
-    let server_task = tokio::spawn(async move {
-        if let Err(e) = server.await {
-            tracing::error!("SAML server error: {}", e);
-        }
-    });
-
-    let sso_url = format!(
-        "https://{}:{}/remote/saml/start?redirect=1",
-        config.host, config.port
-    );
-    browser::open_url(&sso_url);
-
-    let id = rx
-        .await
-        .map_err(|_| anyhow::anyhow!("SAML listener closed early"))?;
-    let _ = shutdown_tx.send(());
-    let _ = server_task.await;
-    Ok(id)
-}
-
-async fn saml_callback(
-    State(tx_state): State<Arc<Mutex<Option<oneshot::Sender<String>>>>>,
-    Query(query): Query<SamlQuery>,
-) -> Html<&'static str> {
-    if let Some(tx) = tx_state.lock().await.take() {
-        let _ = tx.send(query.id);
-    }
-    Html(
-        "<!DOCTYPE html><html><body>\
-         SAML session id received. The VPN will now be established.<br>\
-         You may close this tab.\
-         <script>window.setTimeout(() => window.close(), 5000);</script>\
-         </body></html>",
-    )
 }
 
 #[cfg(test)]

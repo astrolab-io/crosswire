@@ -3,6 +3,7 @@
 
 mod auth;
 mod http;
+mod status;
 mod xml;
 
 use crate::core::framer::Framer;
@@ -17,8 +18,10 @@ pub struct Fortinet;
 
 impl Fortinet {
     async fn http_session(&self, ctx: &ProviderContext) -> Result<HttpSession> {
-        let tls = ctx.connect_tls().await?;
-        HttpSession::new(tls, ctx.tls().host(), ctx.tls().port()).await
+        // The session keeps the factory so it can re-dial if the gateway drops
+        // the keep-alive connection mid-flow (common right after a prior session
+        // teardown, when an immediate reconnect races the gateway's cool-down).
+        HttpSession::connect(ctx.tls().clone()).await
     }
 }
 
@@ -52,7 +55,7 @@ impl VpnProvider for Fortinet {
         // 2. Interactive login (SAML or username/password).
         let mut session = self.http_session(ctx).await?;
         if let Some(port) = config.saml_port {
-            auth::saml_login(&mut session, config, port).await?;
+            auth::saml_login(&mut session, config, port, ctx.progress().clone()).await?;
         } else {
             auth::password_login(&mut session, config).await?;
         }
